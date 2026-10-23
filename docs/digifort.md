@@ -1,95 +1,136 @@
 # Conector Digifort — Etapa 2
 
-## Estado y límites
+## Estado y referencia funcional
 
-`apps/api/src/digifort` es un módulo independiente, sin conexión al arranque de Fastify, rutas públicas, acceso a PostgreSQL ni tareas periódicas. No se consultaron servidores Digifort. El transporte HTTP se implementó con `fetch` de Node.js 22; todas sus pruebas inyectan un transporte simulado, sin red.
+El módulo `apps/api/src/digifort` contiene un cliente JSON basado en la API anterior indicada por el usuario, analizada en modo de sólo lectura (`index.js` y `package.json`). No se ejecutaron los originales, no se copiaron al repositorio y no se consultaron servidores. Los tests utilizan exclusivamente datos sintéticos y transporte inyectado.
 
-**No conocemos todavía el contrato exacto de la API Digifort existente.** El parser `parseSyntheticCameras` implementa exclusivamente un contrato de ensayo local. Ni sus etiquetas ni la ruta usada en las pruebas representan endpoints o respuestas confirmados del proveedor. El cliente exige un adaptador explícito para evitar asumir compatibilidad.
+La referencia utiliza Express, Axios y dotenv; también contiene JWT y middleware de seguridad propios de aquella aplicación. El nuevo backend conserva TypeScript, Fastify y `fetch` nativo de Node.js 22. No se trasladaron dependencias de Express, rutas públicas, credenciales predeterminadas ni inventarios municipales.
 
-## Componentes
+La lectura del código confirma el contrato que esa API consume: dos endpoints JSON y asociación por `Name`. La compatibilidad se prueba contra ese comportamiento con fixtures sintéticas; aún no se validó una respuesta directa anonimizada de la instalación. El análisis PHP anterior permanece como documento histórico en [digifort-legacy-analysis.md](digifort-legacy-analysis.md); la referencia JSON corrige la asociación sin identidad observada allí.
 
-- `types.ts`: `NormalizedCamera`, `CameraContext` y firma `CameraParser`.
-- `parser.ts`: validación XML y normalización del contrato sintético mediante `fast-xml-parser`, con validación de tipos en ejecución. Referencia de la biblioteca: [repositorio oficial](https://github.com/NaturalIntelligence/fast-xml-parser).
-- `client.ts`: GET configurable y acotado, sin reintentos ni solicitudes automáticas.
-- `errors.ts`: errores tipados sin URL, headers, XML, credenciales ni errores originales.
-- `index.ts`: exportaciones del módulo.
+## Componentes y uso
 
-## Modelo normalizado
+- `json-client.ts`: `DigifortJsonClient`, consulta explícita de un servidor.
+- `json-parser.ts`: `parseInventoryJson`, `parseStatusJson` y `associateCameras`.
+- `json-types.ts`: DTOs de inventario y estado, cámara asociada y cobertura.
+- `config.ts`: validación de servidores privados y `parseDigifortServers`.
+- `http.ts`: transporte compartido, acotado y sin logs para XML y JSON.
+- `errors.ts`: códigos tipados y mensajes sin datos privados.
+- `parser.ts`, `client.ts`, `types.ts`: contrato XML sintético anterior, conservado por compatibilidad. No representa un parser XML real de Digifort.
+- `index.ts`: exportaciones públicas del módulo.
 
-| Campo | Tipo | Decisión |
-| --- | --- | --- |
-| `id` | `string` | Obligatorio; conserva ceros iniciales. La identidad es el par `(serverId, id)` |
-| `name` | `string` | Obligatorio, Unicode, sin espacios exteriores |
-| `ip` | `string` | Dirección IPv4 o IPv6 válida; no se utiliza como identidad |
-| `serverId` | `string` | Identificador lógico suministrado por configuración, no una dirección de servidor |
-| `nodeId` | `string \| null` | Asignación externa; `null` significa desconocida o no asignada |
-| `active` | `boolean` | Observación independiente del campo sintético `Active` |
-| `working` | `boolean` | Observación independiente del campo sintético `Working` |
+El módulo no está instanciado por `server.ts` ni por las rutas Fastify. No tiene persistencia, scheduler, consultas automáticas ni nuevos endpoints públicos.
 
-Servidor y nodo se suministran como contexto de cada consulta. Se aplica el mismo contexto a todas las cámaras de la respuesta; si pertenecen a nodos diferentes, debe suministrarse `nodeId: null` y resolver esa asignación con inventario en otra etapa. No se infiere por IP.
+Uso programático futuro, sin valores de conexión en el código:
 
-Un error de transporte o timeout no devuelve cámaras con `active: false` o `working: false`, ni una lista vacía. Rechaza la consulta con un error tipado. Una futura capa de sincronización deberá conservar las últimas observaciones y registrar su antigüedad y la accesibilidad del servidor por separado. Las cuatro combinaciones de Active y Working se conservan; su semántica definitiva debe validarse con el proveedor.
+```ts
+import { DigifortJsonClient, parseDigifortServers } from './digifort/index.js';
 
-## Contrato XML sintético v1
-
-Fixtures: `apps/api/tests/fixtures/digifort/synthetic-*.xml`. Cada archivo indica que es sintético; las direcciones pertenecen a los bloques de documentación `192.0.2.0/24` y `2001:db8::/32`.
-
-```xml
-<!-- SYNTHETIC TEST CONTRACT ONLY. Not an actual Digifort response. -->
-<SyntheticCameraList version="1">
-  <Camera>
-    <Id>0001</Id>
-    <Name>Cámara sintética</Name>
-    <IP>192.0.2.10</IP>
-    <Active>true</Active>
-    <Working>false</Working>
-  </Camera>
-</SyntheticCameraList>
+// Parsing configuration does not initiate requests.
+const servers = parseDigifortServers(process.env.DIGIFORT_SERVERS_JSON);
+const clients = servers.map(server => new DigifortJsonClient({ server }));
+// Only an explicit getCameras() call initiates requests; not enabled at startup.
 ```
 
-La raíz y la versión son obligatorias. Una raíz vacía con versión correcta representa una lista vacía válida. Una cámara requiere todos los campos; sólo se aceptan los literales `true` y `false`. Campos duplicados, desconocidos, IDs repetidos, IP inválida, campos vacíos o anidados y respuestas parciales rechazan el lote completo. No se convierten campos ausentes en falsos ni se devuelve una lista parcialmente válida.
+No registrar `servers`, la variable de entorno, URLs autenticadas ni resultados con datos municipales. El fragmento es ilustrativo y no está conectado al arranque de la aplicación.
 
-Se conserva texto Unicode y se decodifican entidades XML estándar. Se rechazan DTDs y declaraciones de entidades, referencias no declaradas, caracteres XML ilegales, XML mal formado, exceso de tamaño y anidamiento superior a 16 niveles. No se resuelven entidades externas. El contrato es deliberadamente estricto y deberá sustituirse por un adaptador probado cuando se confirme el formato real.
+## Transporte y autenticación
 
-## Configuración HTTP
+Por cada llamada a `getCameras()` se consultan en paralelo:
 
-`DigifortClientOptions` requiere `baseUrl`, `camerasPath`, `context` y `parseCameras`. Opcionalmente acepta `headers`, `timeoutMs` (5000 por defecto), `maxResponseBytes` (1 MiB por defecto, sólo reducible) y una implementación `fetch` para pruebas.
+| Endpoint | Método | Parámetros |
+| --- | --- | --- |
+| `/Interface/Cameras/GetCameras` | GET | `ResponseFormat=JSON`, `AuthUser`, `AuthPass` |
+| `/Interface/Cameras/GetStatus` | GET | `ResponseFormat=JSON`, `AuthUser`, `AuthPass` |
 
-- GET, resolución estándar de URL sobre la base; una ruta con `/` inicial parte de la raíz del origen. No hay ruta de proveedor predeterminada.
-- Sólo HTTP/HTTPS, mismo origen para la URL resuelta, sin usuario o contraseña en URL ni fragmentos. Las credenciales futuras deben suministrarse desde configuración privada; no están implementadas ni incluidas en los ejemplos.
-- No se siguen redirecciones, para evitar transmitir headers a destinos inesperados. Con `fetch` nativo una redirección rechazada se presenta como error de transporte.
-- Timeout para espera de headers y lectura del cuerpo. Se aborta la solicitud y se cancela la lectura al vencer el plazo. El límite de bytes se comprueba durante la lectura, incluso sin `Content-Length`.
-- Cuerpo UTF-8; no se exige un `Content-Type` concreto hasta conocer el comportamiento real del proveedor. Una respuesta HTTP 200 no evita la validación XML y del contrato.
-- No se deshabilita la validación TLS, no hay logs del conector, reintentos, scheduler ni persistencia. El parser es síncrono; el límite de bytes y profundidad acota su entrada, pero el timer no puede interrumpir CPU síncrona.
+Se construyen parámetros con `URL.searchParams`: los caracteres reservados de las credenciales se codifican correctamente. Esta autenticación por query reproduce la referencia funcional; no es HTTP Basic. La autenticación de los consumidores de Fastify sigue fuera del alcance de este módulo.
 
-La construcción del cliente no hace solicitudes. Sólo una llamada explícita a `getCameras()` inicia una consulta. No se incorporó ninguna instancia con transporte real al backend.
+La configuración de cada servidor requiere `id`, `baseUrl`, `username` y `password`. Acepta `name` y `nodeId` opcionales. `baseUrl` es sólo el origen HTTP/HTTPS, con puerto explícito si corresponde, sin ruta, query, fragmento ni credenciales incrustadas. No hay valores reales ni credenciales por defecto. Se rechazan IDs de servidor duplicados.
+
+`parseDigifortServers` acepta el texto JSON de una variable privada `DIGIFORT_SERVERS_JSON` que contiene un array de estas configuraciones. Si está ausente o es `[]`, devuelve cero servidores; si está mal formada, falla con `CONFIGURATION` sin mostrar el contenido. No lee archivos ni carga dotenv de forma implícita. Cuando se habilite un despliegue, inyectar la configuración mediante un mecanismo privado y fuera de Git; esta etapa no modifica Compose ni los archivos de secretos.
+
+HTTP se admite por compatibilidad con la referencia. No proporciona cifrado; habilitar HTTPS dependerá del soporte y certificados de la instalación. Nunca se desactiva la validación TLS. Las URLs autenticadas no se registran, pero la configuración del proxy/servidor remoto también deberá evitar registrar la query antes de utilizar servidores reales.
+
+El cliente usa campos privados nativos de JavaScript para evitar que la inspección o serialización de una instancia muestre credenciales. Esa protección no convierte la configuración externa o los datos retornados en información pública.
+
+## Respuestas y campos conservados
+
+Ambos parsers exigen un array en `Response.Data.Cameras`, como la referencia. No esperan el envoltorio XML `Data/Cameras/Camera` ni la raíz sintética `SyntheticCameraList`. Un array vacío explícito es válido; estructura ausente, objeto en lugar de array o nombres ausentes no equivalen a lista vacía.
+
+Cada cámara asociada devuelve `inventory` y `status` como DTOs con los nombres originales de campos, más un resumen normalizado. Se seleccionan únicamente campos consumidos por la API anterior; no se copia indiscriminadamente el objeto remoto.
+
+| DTO | Campos |
+| --- | --- |
+| Inventario | `Name`, `Description`, `Active`, `Model`, `DeviceType`, `ConnectionAddress`, `ConnectionPort`, `Latitude`, `Longitude`, `Memo`, `MediaProfiles`, `Group` |
+| Estado | `Name`, `Active`, `Working`, `ActiveTime`, `InactiveTime` |
+| Grabación dentro de estado | `ConfiguredToRecord`, `WrittingToDisk`, `RecordingFPS`, `RecordingHours`, `RecordingHoursEstimative`, `UsedDiskSpace` |
+
+`WrittingToDisk` conserva deliberadamente la grafía usada por la referencia. Los booleanos aceptan valores JSON booleanos y cadenas `true`/`false` sin distinguir mayúsculas. Ausencias y nulos se convierten en `null`; tokens como `yes` o `1` se rechazan en lugar de convertirse silenciosamente en falso.
+
+Los valores numéricos o cadenas numéricas se conservan sin convertir unidades ni aplicar `||`: cero, falso y cadena vacía no se sustituyen por valores predeterminados. `MediaProfiles` y `Group` conservan su estructura JSON, incluyendo arrays y objetos. Los metadatos de texto conservan su contenido. La dirección se mantiene en `ConnectionAddress`: puede ser hostname y no se fuerza a una IPv4.
+
+El resumen asociado contiene:
+
+| Campo | Significado |
+| --- | --- |
+| `name`, `serverId` | Clave de consulta compuesta por servidor lógico y `Name` exacto |
+| `serverName` | Etiqueta opcional de configuración; no se infiere del servidor remoto |
+| `nodeId` | Contexto opcional, o `null`; no se infiere de IP |
+| `cameraId`, `cameraType` | Convención heredada de Description: patrón de 2–4 dígitos seguido de F/D/P y `)`; tipos Fija/Domo/Punto; desconocido es `null` |
+| `active`, `working` | Booleanos independientes o `null` |
+| `activeSource` | `status`, `inventory` o `unknown`, según la procedencia del Active utilizado |
+| `inventory`, `status` | DTOs completos seleccionados; estado sin correspondencia es `null` |
+
+El cliente no publica `ServerIp`: la dirección del servidor permanece en la configuración privada y se identifica el resultado mediante `serverId` y etiqueta opcional. Tampoco se trasladan nombres municipales ni la regla del tercer octeto a un inventario de nodos. La asignación `nodeId` se aplica a todo el contexto de la consulta; si un servidor contiene varios nodos, dejarla en `null` y resolver cada relación con inventario en una etapa posterior.
+
+## Asociación y estado desconocido
+
+La unión utiliza un mapa por **`Name` exacto dentro de un único servidor**. Se preservan mayúsculas y espacios, sin normalizar silenciosamente la clave. Se rechazan nombres repetidos en cualquiera de los arrays con `DUPLICATE_NAME`, incluso si se llama a la asociación directamente con DTOs. Reordenar el estado no altera la cámara a la que pertenece.
+
+Name es una clave de asociación confirmada por el código funcional de referencia, no un UUID inmutable. Si se renombra una cámara, cambia esa clave. `cameraId` derivado de Description es una convención local editable y no se utiliza como sustituto para unir respuestas. La persistencia futura necesitará una decisión explícita de identidad y renombrados.
+
+`coverage` contiene sólo contadores:
+
+- `matched`: cámaras de inventario con estado coincidente.
+- `missingStatus`: cámaras de inventario sin estado; permanecen en el resultado.
+- `orphanStatus`: estados sin inventario; no crean cámaras ficticias.
+
+Active da prioridad al estado y, si es nulo o está ausente, utiliza Active de inventario, como la referencia. `activeSource` conserva esa procedencia. Working procede exclusivamente del estado y permanece desconocido cuando no está disponible. Los campos de grabación ausentes también permanecen nulos; no se inventan cero FPS ni falta de grabación.
+
+Las nueve combinaciones de Active y Working (`true`, `false`, `null`) son válidas e independientes. Un endpoint fallido rechaza la consulta con un error tipado: no devuelve un snapshot vacío ni transforma el servidor en cámaras falsas. Tampoco se afirma que un fallo HTTP de autenticación sea un servidor caído.
+
+Las dos consultas no son una instantánea atómica. El snapshot no certifica integridad temporal ni totalidad del inventario por sí solo; deberá validarse paginación y semántica de resultados con documentación o muestras autorizadas.
+
+## Límites y errores
+
+`DigifortJsonClientOptions` permite transporte `fetch` inyectado, `timeoutMs` (5000 por defecto) y `maxResponseBytes` (1 MiB por defecto, sólo reducible). Ambos límites se aplican por endpoint. El timeout cubre headers y cuerpo; cancela el stream al vencer. Las redirecciones están bloqueadas y el límite se comprueba durante la lectura, independientemente de `Content-Length`.
+
+Los cuerpos se decodifican como UTF-8 estricto. El JSON directo también tiene límite de 1 MiB y profundidad máxima de 32 niveles. El parser síncrono no puede interrumpirse mediante timer, por eso se acota su entrada. No se exige un Content-Type específico para no añadir una condición no observada en la referencia.
 
 | Código | Significado |
 | --- | --- |
-| `CONFIGURATION` | URL, contexto, timeout o límite no válidos |
-| `HTTP_ERROR` | Estado HTTP no exitoso; sólo conserva el código numérico en `httpStatus` |
-| `NETWORK_ERROR` | Fallo de conexión, TLS, redirección rechazada o lectura interrumpida |
-| `TIMEOUT` | Venció el plazo de consulta |
+| `CONFIGURATION` | Configuración privada o límites inválidos |
+| `HTTP_ERROR` | HTTP no exitoso; sólo conserva código numérico en `httpStatus` |
+| `NETWORK_ERROR` | Conexión, TLS, redirección rechazada o lectura interrumpida |
+| `TIMEOUT` | Venció el plazo de ese endpoint |
 | `RESPONSE_TOO_LARGE` | Se excedió el límite de bytes |
-| `INVALID_XML` | XML o codificación no válidos, DTD o entrada fuera de límites estructurales |
-| `INVALID_RESPONSE` | XML incompatible con el contrato o respuesta incompleta |
+| `INVALID_JSON` | JSON o UTF-8 inválidos |
+| `INVALID_RESPONSE` | Envoltorio, tipos o campos obligatorios incompatibles |
+| `DUPLICATE_NAME` | Unión ambigua por nombres duplicados |
+| `INVALID_XML` | Error del contrato XML sintético conservado |
 
-Estos códigos no diagnostican por sí solos que un servidor esté caído: HTTP 401 significa fallo de autenticación y un error XML significa formato incompatible. La futura capa de estado debe preservar esa distinción.
+Los errores no conservan causa, URLs, cuerpos, headers, configuración ni identificadores municipales. No hay logs del conector. No se introdujo una regla de error funcional de Digifort no documentada: una respuesta HTTP 200 sin el envoltorio esperado se rechaza, pero aún se debe confirmar cómo informa errores de negocio la instalación.
 
-## Validaciones pendientes contra la API existente
+## Contrato XML sintético conservado
 
-Antes de habilitar consultas reales se necesitan documentación o muestras autorizadas y anonimizadas para confirmar:
+`DigifortClient` y `parseSyntheticCameras` siguen disponibles exclusivamente para el contrato sintético v1 anterior. Sus fixtures `synthetic-*.xml` declaran su naturaleza de ensayo. Exigen `SyntheticCameraList version="1"`, elementos `Camera` con `Id`, `Name`, `IP`, `Active` y `Working`, y literales booleanos minúsculos. Conservan validación de campos, IDs únicos, IPv4/IPv6, DTDs prohibidos, caracteres y entidades XML legales, límite de tamaño y 16 niveles de anidamiento.
 
-1. Versión y producto Digifort, endpoints, método HTTP, parámetros, paginación y límites de consulta.
-2. Autenticación, permisos de sólo lectura, HTTPS, certificados y tratamiento de errores, incluidos errores de negocio dentro de HTTP 200.
-3. Raíz XML, namespaces, atributos frente a elementos, codificación, cardinalidad y representación explícita de una lista vacía.
-4. Ubicación, estabilidad y alcance del identificador; forma del nombre y la dirección de cámara.
-5. Representación de Active y Working (`true/false`, `0/1` u otra), significado de cada estado y campos omitidos o nulos. No asumir equivalencias.
-6. Si inventario y estado vienen en endpoints separados, cómo unirlos por ID y detectar resultados parciales.
-7. Procedencia de servidor y nodo, sin inferir relaciones por nombre ni dirección.
+Este contrato no debe conectarse a los endpoints JSON. `NormalizedCamera` continúa describiendo sólo ese contrato completo; `DigifortJsonCamera` permite explícitamente observaciones desconocidas y metadatos separados.
 
-Las muestras originales con información municipal deben permanecer fuera del repositorio. Se escribirá un adaptador específico y sus pruebas con muestras anonimizadas una vez confirmado el contrato.
+## Pruebas y validación pendiente
 
-## Pruebas
+En `apps/api`: `npm run build` y `npm test` (o antes `npm ci` si faltan dependencias). Las fixtures JSON `synthetic-inventory.json` y `synthetic-status.json` contienen nombres ficticios y direcciones de documentación; no son capturas ni copias de producción.
 
-En `apps/api`: `npm ci`, `npm run build` y `npm test`. Las pruebas cubren fixtures válidas, vacías, incompletas y mal formadas, normalización, identidad, flags independientes, límites, entidades, HTTP, errores de red, timeout de headers/cuerpo y cancelación. Ninguna prueba del conector usa servidores reales ni PostgreSQL.
+Se prueba normalización completa, ceros y falsos, flags desconocidos, grabación, unión por Name reordenado, duplicados, faltantes, huérfanos, aislamiento por servidor, configuración inválida, codificación de credenciales ficticias, ausencia de secretos en errores/inspección del cliente, HTTP, límites, timeout y cancelación. Las pruebas XML y de salud Fastify siguen vigentes. No hay conexiones reales ni cambios a PostgreSQL o al frontend.
+
+Quedan pendientes muestras JSON anonimizadas y documentación de la instalación para confirmar versiones, tipos efectivos, nombres y unidades, errores funcionales, cardinalidad, paginación, límites apropiados, TLS y estabilidad de Name. No se activa el conector hasta una etapa explícita posterior.

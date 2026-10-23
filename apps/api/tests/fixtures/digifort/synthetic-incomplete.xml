@@ -1,0 +1,9 @@
+<!-- SYNTHETIC TEST CONTRACT ONLY. Working is intentionally missing. -->
+<SyntheticCameraList version="1">
+  <Camera>
+    <Id>0001</Id>
+    <Name>Cámara sintética incompleta</Name>
+    <IP>192.0.2.10</IP>
+    <Active>true</Active>
+  </Camera>
+</SyntheticCameraList>

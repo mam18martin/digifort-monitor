@@ -65,7 +65,7 @@ git push -u origin main
 No subir `.env` ni datos municipales. Configurar protección de `main`, revisión por PR y CI obligatoria.
 
 ## Próximos hitos
-La primera versión aislada del conector, con contrato XML sintético y transporte HTTP probado sin red, está documentada en [docs/digifort.md](docs/digifort.md). No se activa al iniciar la API y todavía no es compatible de forma verificada con servidores Digifort reales.
+El conector JSON aislado usa GetCameras y GetStatus, une respuestas por Name y conserva estados desconocidos y campos de grabación. Su diseño y pruebas sin red están documentados en [docs/digifort.md](docs/digifort.md). Se basa en la API anterior; todavía no se activa al iniciar Fastify ni se validó mediante consultas reales. El contrato XML sintético se conserva para sus pruebas.
 
 1. Esquema PostgreSQL, migraciones y modelo de nodos/servidores/cámaras.
 2. Conector Digifort con XML de prueba anonimizado y correspondencia por ID estable.

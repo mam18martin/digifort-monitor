@@ -1,0 +1,17 @@
+{
+  "Response": {
+    "Data": {
+      "Cameras": [
+        { "Name": "synthetic-camera-b", "Active": "FALSE", "Working": "TRUE" },
+        {
+          "Name": "synthetic-camera-a", "Active": true, "Working": false,
+          "ActiveTime": 0, "InactiveTime": "86400",
+          "ConfiguredToRecord": "TRUE", "WrittingToDisk": false,
+          "RecordingFPS": 0, "RecordingHours": "0",
+          "RecordingHoursEstimative": 0, "UsedDiskSpace": 0
+        },
+        { "Name": "synthetic-orphan", "Working": false }
+      ]
+    }
+  }
+}

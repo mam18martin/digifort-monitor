@@ -1,0 +1,18 @@
+{
+  "Response": {
+    "Data": {
+      "Cameras": [
+        {
+          "Name": "synthetic-camera-a", "Description": "001F) Cámara de ensayo",
+          "Active": false, "Model": "Synthetic model", "DeviceType": "Synthetic",
+          "ConnectionAddress": "192.0.2.10", "ConnectionPort": 0,
+          "Latitude": 0, "Longitude": "0", "Memo": "Synthetic fixture only",
+          "MediaProfiles": [{ "Name": "synthetic-profile", "FPS": 0 }],
+          "Group": ["synthetic-group"]
+        },
+        { "Name": "synthetic-camera-b", "Description": "002D) Ensayo", "Active": "TRUE", "ConnectionAddress": "camera-b.invalid" },
+        { "Name": "synthetic-camera-c", "Description": "Texto sin identificador", "Active": null }
+      ]
+    }
+  }
+}

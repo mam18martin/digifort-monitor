@@ -5,6 +5,8 @@ export type DigifortErrorCode =
   | 'TIMEOUT'
   | 'RESPONSE_TOO_LARGE'
   | 'INVALID_XML'
+  | 'INVALID_JSON'
+  | 'DUPLICATE_NAME'
   | 'INVALID_RESPONSE';
 
 /** Never retain URLs, headers, raw XML or underlying transport errors. */

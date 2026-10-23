@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC TEST CONTRACT ONLY. Not an actual Digifort response. -->
+<SyntheticCameraList version="1">
+  <Camera>
+    <Id>0001</Id>
+    <Name>Cámara sintética &amp; acceso</Name>
+    <IP>192.0.2.10</IP>
+    <Active>true</Active>
+    <Working>false</Working>
+  </Camera>
+  <Camera>
+    <Id>0002</Id>
+    <Name>Cámara sintética secundaria</Name>
+    <IP>2001:db8::10</IP>
+    <Active>false</Active>
+    <Working>true</Working>
+  </Camera>
+</SyntheticCameraList>
