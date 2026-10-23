@@ -10,6 +10,7 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.11.2",
     "fastify": "^5.0.0",
     "pg": "^8.13.0"
   },
