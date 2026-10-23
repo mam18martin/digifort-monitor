@@ -22,7 +22,7 @@ Abrir http://localhost:8080. Detener con `docker compose down` (sin `-v`, para c
 - `api`: Fastify en la red privada Docker, no expuesta al host
 - `db`: PostgreSQL 17, volumen persistente, no expuesto al host
 
-La API usa un pool PostgreSQL y ejecuta `SELECT 1` para comprobar disponibilidad. Todavía no hay esquema ni consultas de negocio. La PWA, login y HTTPS no están implementados todavía.
+La API usa un pool PostgreSQL y ejecuta `SELECT 1` para comprobar disponibilidad. La Fase 3A incorpora migraciones iniciales de inventario, pero no las aplica al arrancar ni habilita consultas de negocio. El uso, las pruebas aisladas y los riesgos están en [docs/database-migrations.md](docs/database-migrations.md). La PWA, login y HTTPS no están implementados todavía.
 
 ### Comprobaciones de salud
 - `GET /api/v1/health`: devuelve 200 con `status: "ok"` y `service: "digifort-monitor-api"` si la API responde, independientemente de PostgreSQL.

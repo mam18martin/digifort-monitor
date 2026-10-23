@@ -1,0 +1,13 @@
+# Inactive overlay: future API recreation requires explicit authorization.
+services:
+  api:
+    environment:
+      PGUSER: monitor_app
+      PGPASSWORD: !reset null
+      PGPASSFILE: /run/secrets/pg_app_passfile
+    secrets:
+      - source: pg_app_passfile
+        target: pg_app_passfile
+secrets:
+  pg_app_passfile:
+    file: ${PG_APP_PASSFILE:?Definir pgpass privado con permisos 0600}

@@ -1,0 +1,7 @@
+{
+  "ipam_approval": null,
+  "docker0_bip": "192.168.240.1/24",
+  "monitor_subnet": "192.168.241.0/27",
+  "default_pool_base": "192.168.242.0/23",
+  "default_pool_size": 27
+}

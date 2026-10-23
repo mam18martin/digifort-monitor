@@ -20,3 +20,12 @@ jobs:
       - run: npm run build
       - if: matrix.app == 'api'
         run: npm test
+  postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test migrations on disposable PostgreSQL 17
+        run: docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from test-api
+      - name: Remove disposable test services
+        if: always()
+        run: docker compose -f compose.test.yaml down

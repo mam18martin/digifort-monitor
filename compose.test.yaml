@@ -1,0 +1,30 @@
+name: digifort-monitor-test
+services:
+  test-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: digifort_test_isolated
+      POSTGRES_HOST_AUTH_METHOD: trust
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "digifort_test_isolated"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [test]
+  test-api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.test
+    environment:
+      RUN_NATIVE_DB_TESTS: "1"
+      TEST_POSTGRES_HOST: test-db
+      TEST_POSTGRES_DATABASE: digifort_test_isolated
+    depends_on:
+      test-db:
+        condition: service_healthy
+    networks: [test]
+networks:
+  test:
+    internal: true

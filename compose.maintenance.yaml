@@ -1,0 +1,24 @@
+name: digifort-monitor-maintenance
+services:
+  migrate:
+    profiles: [manual]
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: digifort-monitor-maintenance:phase3a
+    entrypoint: [node, dist/database/migrate-cli.js]
+    command: [up]
+    env_file:
+      - ${MIGRATION_ENV_FILE:?Definir archivo privado del migrador}
+    environment:
+      MIGRATION_OWNER_ROLE: monitor_owner
+      MIGRATION_ALLOW_DOWN: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    networks: [maintenance]
+networks:
+  maintenance:
+    external: true
+    name: ${MAINTENANCE_NETWORK:?Definir red existente aprobada}

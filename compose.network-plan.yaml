@@ -1,0 +1,10 @@
+# Inactive overlay: CIDR must be approved by IPAM before network recreation.
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: ${MONITOR_SUBNET:?Definir subred aprobada por IPAM}
+volumes:
+  postgres_data:
+    external: true
+    name: digifort-monitor_postgres_data

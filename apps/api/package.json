@@ -7,7 +7,11 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:db": "node --import tsx --test tests/database.test.ts",
+    "test:db:native": "node --import tsx --test tests/database-native.test.ts",
+    "migrate:up": "tsx src/database/migrate-cli.ts up",
+    "migrate:down": "tsx src/database/migrate-cli.ts down"
   },
   "dependencies": {
     "fast-xml-parser": "^5.11.2",
@@ -15,6 +19,7 @@
     "pg": "^8.13.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.4.6",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
     "tsx": "^4.19.0",
