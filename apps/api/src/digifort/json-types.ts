@@ -1,3 +1,5 @@
+import type { MunicipalIdentityCandidate } from './municipal-code-parser.js';
+
 /** null means unobserved, not false. */
 export type ObservedBoolean = boolean | null;
 export type DigifortScalar = string | number | null;
@@ -40,6 +42,9 @@ export interface DigifortJsonCamera {
   serverId: string;
   serverName: string | null;
   nodeId: string | null;
+  /** Official candidate from Description only; never an approved assignment. */
+  municipalIdentity: MunicipalIdentityCandidate;
+  /** Legacy Description extraction; never use as municipal identity. */
   cameraId: string | null;
   cameraType: 'Fija' | 'Domo' | 'Punto' | null;
   active: ObservedBoolean;

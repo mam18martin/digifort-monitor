@@ -1,6 +1,10 @@
+import {migrationIds} from '../src/database/migrations.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
+import { randomUUID } from 'node:crypto';
+import { identityReviewConcurrencyTests } from './identity-review-native.ts';
+import { writerConcurrencyTests } from './snapshot-writer-native.ts';
 import { databaseSuite } from './database-suite.ts';
 import { migrate } from '../src/database/migrations.ts';
 import type { MigrationConnection } from '../src/database/migrations.ts';
@@ -11,7 +15,9 @@ test('initial schema on explicitly isolated native PostgreSQL 17', { skip: !enab
   const host = process.env.TEST_POSTGRES_HOST;
   const database = process.env.TEST_POSTGRES_DATABASE;
   assert.ok(host && database === 'digifort_test_isolated', 'Explicit isolated test target required');
-  const options = { host, database, user: 'postgres', port: 5432, password: '', connectionTimeoutMillis: 5000 };
+  const port=Number(process.env.TEST_POSTGRES_PORT??5432);
+  assert.ok(Number.isInteger(port)&&port>0&&port<=65535);
+  const options = { host, database, user: 'postgres', port, password: '', connectionTimeoutMillis: 5000 };
   const client = new pg.Client(options);
   const adapt = (connection: pg.Client): MigrationConnection => ({
     exec: sql => connection.query(sql), query: (sql, params) => connection.query(sql, params),
@@ -79,7 +85,38 @@ test('initial schema on explicitly isolated native PostgreSQL 17', { skip: !enab
           await waitForBlock(other.pid);
           await client.query('COMMIT');
           await Promise.all([pending, migrate(db, 'up')]);
-          assert.equal((await client.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 1);
+          assert.equal((await client.query('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, migrationIds.length);
+        } finally {
+          await client.query('ROLLBACK');
+          await pending?.catch(() => {});
+          await other.connection.end();
+        }
+      });
+
+      await writerConcurrencyTests(t,client,competitor,waitForBlock);
+      await identityReviewConcurrencyTests(t,client,competitor,waitForBlock);
+
+      await t.test('server lease acquisition serializes and a stale contender cannot overwrite its token', async () => {
+        const other = await competitor();
+        let pending: Promise<pg.QueryResult> | undefined;
+        try {
+          const server = (await client.query(`INSERT INTO digifort_servers(config_key,name,endpoint_origin)
+            VALUES ('lease-test','Test','https://digifort.invalid') RETURNING id`)).rows[0].id;
+          await client.query('INSERT INTO server_sync_control(server_id) VALUES ($1)', [server]);
+          const acquire = `UPDATE server_sync_control SET issued_sequence=issued_sequence+1, lease_token=$2,
+            lease_until=clock_timestamp()+interval '30 seconds' WHERE server_id=$1
+            AND (lease_until IS NULL OR lease_until <= clock_timestamp()) RETURNING issued_sequence`;
+          await client.query('BEGIN');
+          const winner = randomUUID();
+          assert.equal((await client.query(acquire,[server,winner])).rowCount,1);
+          pending = other.connection.query(acquire,[server,randomUUID()]);
+          void pending.catch(() => {});
+          await waitForBlock(other.pid);
+          await client.query('COMMIT');
+          assert.equal((await pending).rowCount,0);
+          const state = (await client.query('SELECT issued_sequence,lease_token FROM server_sync_control WHERE server_id=$1',[server])).rows[0];
+          assert.equal(String(state.issued_sequence),'1');
+          assert.equal(state.lease_token,winner);
         } finally {
           await client.query('ROLLBACK');
           await pending?.catch(() => {});
@@ -126,7 +163,7 @@ test('initial schema on explicitly isolated native PostgreSQL 17', { skip: !enab
           await waitForBlock(other.pid);
           await client.query('COMMIT');
           assert.equal((await pending).code, '23P01');
-          assert.equal((await client.query('SELECT count(*)::int AS n FROM camera_bindings')).rows[0].n, 1);
+          assert.equal((await client.query("SELECT count(*)::int AS n FROM camera_bindings WHERE external_name='concurrent-synthetic'")).rows[0].n, 1);
         } finally {
           await client.query('ROLLBACK');
           await pending;

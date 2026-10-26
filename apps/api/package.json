@@ -4,22 +4,28 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch src/integration/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/integration/server.js",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:db": "node --import tsx --test tests/database.test.ts",
     "test:db:native": "node --import tsx --test tests/database-native.test.ts",
     "migrate:up": "tsx src/database/migrate-cli.ts up",
-    "migrate:down": "tsx src/database/migrate-cli.ts down"
+    "migrate:down": "tsx src/database/migrate-cli.ts down",
+    "inspection": "node dist/inspection/server.js",
+    "live": "node dist/integration/server.js",
+    "integration": "node dist/integration/server.js",
+    "bootstrap:admin": "node dist/integration/bootstrap-admin.js"
   },
   "dependencies": {
     "fast-xml-parser": "^5.11.2",
     "fastify": "^5.0.0",
+    "jsonwebtoken": "^9.0.3",
     "pg": "^8.13.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
     "tsx": "^4.19.0",

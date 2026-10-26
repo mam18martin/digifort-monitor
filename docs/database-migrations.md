@@ -1,6 +1,22 @@
 # Fase 3A: migración inicial de inventario
 
+> Regla vigente: [Description como fuente oficial](description-identity.md). Desde esta corrección, Name es sólo la clave técnica exacta; no hay fallback automático. Las referencias anteriores a Name como fuente son históricas.
+
 **Plan vigente de desbloqueo:** [phase3a-unlock-plan.md](phase3a-unlock-plan.md) incorpora separación de roles, servicio de mantenimiento y direccionamiento condicionado a IPAM. Sustituye el uso del rol privilegiado en las antiguas secciones E/F de preaplicación. Los comandos históricos no autorizan cambios. El CLI ahora exige `MIGRATION_OWNER_ROLE` y rechaza logins elevados.
+
+## Ampliación de Fase 3B, paso 2
+
+Se agrega `002_sync_observations` y un migrador de versiones ordenadas. El alcance,
+restricciones y semántica de rollback completo están en [sync-observations.md](sync-observations.md).
+Las secciones siguientes describen el artefacto 001 y su evidencia histórica; sus
+conteos de una versión/siete tablas no validan por sí solos el paquete ampliado.
+Up ahora aplica las pendientes 001/002; down retira ambas en orden inverso, no sólo
+la última. Ninguna migración se aplica al arrancar la API. No se aplicó este paquete
+a una base persistente ni se levantó ingestión.
+
+## Fase 3B, paso 5
+
+`003_identity_review` añade propuestas, evidencia y auditoría de revisión. El migrador aplica ahora las pendientes de 001/002/003; down retira las tres en orden inverso. 001/002 conservan sus checksums. Ver [identity-review.md](identity-review.md). No se aplicó este paquete a bases persistentes ni se habilitan correcciones de identidad.
 
 ## Alcance y estado
 
@@ -19,8 +35,8 @@ El diseño completo sigue en [database-design.md](database-design.md). Esta fase
 - No se almacenan username, password ni tokens. `digifort_servers` guarda sólo origen HTTP/HTTPS sin userinfo/query/ruta y una referencia opaca opcional al proveedor de secretos. Los servidores se crean deshabilitados por defecto; eso no habilita ninguna tarea.
 - Los vínculos unen nombres técnicos exactos por servidor. Los períodos son semiabiertos `[valid_from, valid_to)`, con NULL como final abierto. Se impiden solapamientos por cámara, por servidor/Name y por servidor/ID externo no nulo, incluidos períodos históricos. Los intervalos adyacentes se admiten. Nombre, cámara, servidor y generación de un vínculo existente son inmutables; para cambiar relación se cierra y agrega otro.
 - El ID externo es opcional: no se deduce ni se rellena con el código municipal. La generación diferencia reutilizaciones de una clave técnica, sin fusionar UUIDs. Se admite el mismo Name en servidores distintos o con diferencias de mayúsculas.
-- Inventario versionado conserva `description_original` y `description_text` como datos distintos: la base no vuelve a interpretar ni recortar Description. El futuro escritor deberá extraer el sufijo con la convención aprobada y aplicar redacción de secretos antes de persistir.
-- Se conservan candidatos inválidos, duplicados o de tipo desconocido sin convertirlos en códigos aceptados. No se exige unicidad ni FK de catálogo a esos candidatos. Los errores de Description no impiden mantener la cámara provisional, su vínculo o sus estados.
+- Inventario versionado conserva `description_original` y `description_text` como datos distintos: la base no vuelve a interpretar ni recortar Description. Desde 004, el candidato municipal se obtiene exclusivamente de Description, con delimitador opcional y sin fallback desde Name. El futuro escritor debe aplicar redacción de secretos y tratar ambos campos descriptivos independientemente de la identidad; este paso no cambia el SQL.
+- Se conservan candidatos inválidos, duplicados o de tipo desconocido sin convertirlos en códigos aceptados. No se exige unicidad ni FK de catálogo a esos candidatos. Los errores del formato municipal de Name no impiden mantener la cámara provisional, su vínculo o sus estados.
 - Las versiones no se solapan por cámara y deben estar contenidas en el vínculo de esa cámara; FK compuestas impiden utilizar vínculos ajenos. Nodo, cámara y servidor tienen relaciones explícitas.
 - Los metadatos de una versión son inmutables; sólo se permite cerrarla una vez y avanzar su última confirmación sin retroceder ni exceder su período. El estado actual sólo referencia un vínculo abierto propio. No se puede cerrar un vínculo mientras su inventario exceda el cierre o el estado actual lo siga referenciando.
 - Secuencia aplicada y época de observación no retroceden. Esto no implementa por sí solo idempotencia o control de un worker: faltan ejecuciones y escritor transaccional.
@@ -382,3 +398,14 @@ Criterio: una versión `001_inventory` con checksum aprobado, siete tablas, tipo
 Un down futuro sólo puede considerarse con autorización adicional explícita y evidencia de que se preservaron todas las escrituras posteriores. Para evitar un rollback accidental, `MIGRATION_ALLOW_DOWN` no está en el archivo de up. No queda autorizado por aprobar up ni por preparar este informe. La tabla técnica y la extensión compartida se conservan tras down según el diseño; un rollback de esquema no equivale a restaurar el backup.
 
 **Salida de esta preparación:** BLOQUEADO hasta cerrar la lista de pendientes y recibir autorización. Inspección técnica favorable; ninguna modificación de base, contenedor, volumen, rol o extensión realizada. Ningún backup de producción ni secreto se agregó al repositorio. No se hicieron commits ni pushes.
+
+## 004_description_identity
+
+Nueva fuente Description: funciones de extracción/validación SQL, trigger de candidatos,
+índice y procedencia code_source de propuestas. El migrador aplica 001/002/003/004 en
+orden; ninguna se ejecuta al arrancar. 001/002/003 conservan sus checksums.
+El down directo de 004 rechaza observaciones nuevas que perderían procedencia. El
+rollback completo del migrador retira todo el esquema en una transacción: sólo entonces
+fija digifort.full_schema_rollback, ya que no conserva tablas parciales mal etiquetadas.
+La operación sigue requiriendo autorización explícita del CLI. No se ejecutó en bases
+persistentes. Ver [description-identity.md](description-identity.md).

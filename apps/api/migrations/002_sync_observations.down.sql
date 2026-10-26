@@ -1,0 +1,20 @@
+-- Destructive schema rollback; never an automatic recovery of production data.
+DROP TRIGGER inventory_provenance_guard ON camera_inventory_versions;
+ALTER TABLE camera_inventory_versions DROP COLUMN source_server_run_id;
+ALTER TABLE camera_current_state DROP COLUMN last_state_change_id;
+DROP FUNCTION validate_inventory_provenance();
+DROP TABLE server_current_health;
+DROP TABLE server_health_changes;
+DROP TABLE camera_state_changes;
+DROP TABLE sync_issues;
+DROP TABLE sync_endpoint_attempts;
+DROP TABLE server_sync_control;
+DROP TABLE sync_server_runs;
+DROP TABLE sync_runs;
+DROP FUNCTION guard_current_health();
+DROP FUNCTION validate_sync_observation();
+DROP FUNCTION protect_sync_record();
+DROP FUNCTION guard_sync_control();
+DROP FUNCTION validate_server_execution();
+DROP FUNCTION prevent_sync_control_delete();
+DROP FUNCTION validate_endpoint_period();

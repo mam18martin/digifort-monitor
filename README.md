@@ -1,6 +1,42 @@
-# Digifort Monitor — Etapa 1
+# Digifort Monitor — MVP visual local
+
+## Integración actual con apicamstat
+
+Continuación y estado: [docs/apicamstat-integration.md](docs/apicamstat-integration.md).
+Revisión Docker aislada: **http://127.0.0.1:8085**. La configuración privada y el acceso
+inicial están sólo en `.local/integration/`, fuera de Git. La migración 005 no se aplicó
+a bases persistentes; hay pendientes documentados antes de ese paso.
+
+
+## Operación actual: datos reales en memoria
+
+Abrir **http://127.0.0.1:8084/#/dashboard**. El backend local consulta GetCameras y
+GetStatus exclusivamente con **Actualizar**, sin PostgreSQL ni sincronización
+automática. Credenciales sólo en Fastify. Ver [monitoreo real](docs/live-monitoring.md)
+para inicio, vencimiento, pruebas y privacidad. La demo quedó retirada de la navegación
+operativa; los recursos existentes se conservan y los fixtures sólo se usan en tests.
+Las instrucciones históricas de demostración siguientes no son el flujo vigente.
+
 
 Plataforma municipal de monitoreo de cámaras y mantenimiento de infraestructura. **Este repositorio es un esqueleto inicial, no una versión apta para exposición pública.**
+
+## Ver y probar el sistema
+
+La reconciliación 3B.5 queda pausada. La primera demo navegable ofrece dashboard,
+inventario con búsqueda/filtros, detalle con historial y salud de servidores, usando
+React/Vite + Fastify + PostgreSQL 17 con 48 cámaras y 4 servidores ficticios.
+
+```bash
+bash ops/demo.sh start
+```
+
+Abrir **http://127.0.0.1:8081**. No requiere .env ni credenciales de la oficina.
+Para renovar observaciones sintéticas vencidas: `bash ops/demo.sh reset`.
+Para detener sólo la demo: `bash ops/demo.sh stop`.
+
+**[Inicio, recorrido, reinicio y aislamiento de la demo](docs/visual-demo.md)**.
+El Compose principal descrito debajo conserva su función de infraestructura; no
+habilita por defecto la API visual sin autenticación.
 
 ## Requisitos
 - Docker Engine + Docker Compose plugin
@@ -22,7 +58,7 @@ Abrir http://localhost:8080. Detener con `docker compose down` (sin `-v`, para c
 - `api`: Fastify en la red privada Docker, no expuesta al host
 - `db`: PostgreSQL 17, volumen persistente, no expuesto al host
 
-La API usa un pool PostgreSQL y ejecuta `SELECT 1` para comprobar disponibilidad. La Fase 3A incorpora migraciones iniciales de inventario, pero no las aplica al arrancar ni habilita consultas de negocio. El uso, las pruebas aisladas y los riesgos están en [docs/database-migrations.md](docs/database-migrations.md). La PWA, login y HTTPS no están implementados todavía.
+La API usa un pool PostgreSQL y ejecuta `SELECT 1` para comprobar disponibilidad. La Fase 3A incorpora migraciones iniciales de inventario, pero no las aplica al arrancar ni habilita consultas de negocio. El uso, las pruebas aisladas y los riesgos están en [docs/database-migrations.md](docs/database-migrations.md). El paso 2 de Fase 3B agrega estructuras de seguimiento e historial; el [paso 3](docs/snapshot-writer.md) incorpora un escritor explícito sin activar colección ni ingestión automática; ver [docs/sync-observations.md](docs/sync-observations.md). El [paso 4](docs/manual-synchronization.md) integra un coordinador manual explícito, sin activación al arrancar y con completitud desconocida. El [paso 5](docs/identity-review.md) añade propuestas y auditoría de revisión, con aprobación y aplicación de identidades bloqueadas. La PWA, login y HTTPS no están implementados todavía.
 
 ### Comprobaciones de salud
 - `GET /api/v1/health`: devuelve 200 con `status: "ok"` y `service: "digifort-monitor-api"` si la API responde, independientemente de PostgreSQL.

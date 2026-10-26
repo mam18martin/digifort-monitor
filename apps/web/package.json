@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:browser": "python3 ../../ops/test-identities-browser.py --management",
+    "test:inspection": "python3 ../../ops/test-identities-browser.py --inspection",
+    "test:comparison": "../api/node_modules/.bin/tsx --test tests/inspection-comparison.test.ts"
   },
   "dependencies": {
     "react": "^19.0.0",

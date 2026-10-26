@@ -1,4 +1,5 @@
 import { DigifortError } from './errors.js';
+import { parseMunicipalDescription } from './municipal-code-parser.js';
 import { MAX_RESPONSE_BYTES } from './http.js';
 import type {
   DigifortInventory, DigifortStatus, DigifortScalar, ObservedBoolean, JsonValue,
@@ -103,6 +104,7 @@ export function associateCameras(
     return {
       name: camera.Name, serverId: context.serverId, serverName: context.serverName ?? null,
       nodeId: context.nodeId ?? null, cameraId: description?.[1] ?? null,
+      municipalIdentity: parseMunicipalDescription(camera.Description),
       cameraType: type === 'F' ? 'Fija' : type === 'D' ? 'Domo' : type === 'P' ? 'Punto' : null,
       active: status?.Active ?? camera.Active,
       activeSource: status?.Active != null ? 'status' : camera.Active != null ? 'inventory' : 'unknown',

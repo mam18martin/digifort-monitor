@@ -1,0 +1,88 @@
+# Isolated integration project. Never merge this file with the principal project's Compose.
+name: digifort-integration
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: digifort_integration_isolated
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_owner
+    secrets: [db_owner]
+    tmpfs: [/var/lib/postgresql/data]
+    networks: [internal]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U postgres -d digifort_integration_isolated"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  prepare:
+    build: {context: ., dockerfile: apps/api/Dockerfile.integration}
+    profiles: [tools]
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      INTEGRATION_DISPOSABLE: 'yes'
+      PGHOST: db
+      PGDATABASE: digifort_integration_isolated
+    secrets: [db_owner, db_reader, db_manager, initial_admin]
+    networks: [internal]
+    command: [node, dist/integration/prepare-isolated.js]
+  apicamstat:
+    build: {context: ., dockerfile: services/apicamstat/Dockerfile}
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      PGHOST: db
+      PGDATABASE: digifort_integration_isolated
+      PGUSER: apicamstat_reader
+      PGPASSWORD_FILE: /run/secrets/db_reader
+      JWT_SECRET_FILE: /run/secrets/user_jwt
+      SERVICE_TOKEN_SECRET_FILE: /run/secrets/service_jwt
+      DIGIFORT_PROFILES_FILE: /run/secrets/digifort_profiles
+      DIGIFORT_NODES_FILE: /run/secrets/digifort_nodes
+      DIGIFORT_ALLOWED_CIDRS: ${DIGIFORT_ALLOWED_CIDRS:-}
+    secrets: [db_reader, user_jwt, service_jwt, digifort_profiles, digifort_nodes]
+    networks: [internal, collector_egress]
+    depends_on: {db: {condition: service_healthy}}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    build: {context: ., dockerfile: apps/api/Dockerfile.integration}
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      APP_ORIGIN: http://127.0.0.1:${INTEGRATION_PORT:-8085}
+      PGHOST: db
+      PGDATABASE: digifort_integration_isolated
+      PGUSER: monitor_manager
+      PGPASSWORD_FILE: /run/secrets/db_manager
+      JWT_SECRET_FILE: /run/secrets/user_jwt
+      SERVICE_TOKEN_SECRET_FILE: /run/secrets/service_jwt
+      APICAMSTAT_ORIGIN: http://apicamstat:3001
+      DIGIFORT_PROFILES_FILE: /run/secrets/digifort_profiles
+    secrets: [db_manager, user_jwt, service_jwt, digifort_profiles]
+    networks: [internal]
+    depends_on: {apicamstat: {condition: service_healthy}}
+  web:
+    build: {context: ., dockerfile: apps/web/Dockerfile.integration}
+    ports: ["127.0.0.1:${INTEGRATION_PORT:-8085}:80"]
+    networks: [internal, frontend]
+    depends_on: [api]
+networks:
+  internal: {internal: true, ipam: {config: [{subnet: '100.127.251.0/28'}]}}
+  collector_egress: {ipam: {config: [{subnet: '100.127.251.16/28'}]}}
+  frontend: {ipam: {config: [{subnet: '100.127.251.32/28'}]}}
+secrets:
+  db_owner: {file: ./.local/integration/db_owner}
+  db_reader: {file: ./.local/integration/db_reader}
+  db_manager: {file: ./.local/integration/db_manager}
+  user_jwt: {file: ./.local/integration/user_jwt}
+  service_jwt: {file: ./.local/integration/service_jwt}
+  digifort_profiles: {file: ./.local/integration/digifort_profiles.json}
+  digifort_nodes: {file: ./.local/integration/digifort_nodes.json}
+
+  initial_admin: {file: ./.local/integration/access.json}

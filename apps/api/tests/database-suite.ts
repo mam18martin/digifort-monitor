@@ -1,6 +1,9 @@
+import {migrationIds} from '../src/database/migrations.ts';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { TestContext } from 'node:test';
+import { snapshotWriterSuite } from './snapshot-writer-suite.ts';
+import { syncObservationSuite } from './sync-observation-suite.ts';
 import { migrate } from '../src/database/migrations.ts';
 import type { MigrationConnection } from '../src/database/migrations.ts';
 
@@ -27,13 +30,29 @@ export async function databaseSuite(t: TestContext, db: MigrationConnection): Pr
   const middle = '2026-01-02T00:00:00Z';
   const end = '2026-01-03T00:00:00Z';
 
+  await t.test('upgrade from 001 preserves data and checksum; failed 002 is atomic', async () => {
+    await migrate(db, 'up', '001_inventory');
+    const checksum = (await sql("SELECT checksum FROM schema_migrations WHERE id='001_inventory'")).rows[0].checksum;
+    assert.equal(checksum, 'ccc33e8e1c618656a0e1199ccdbc6c4781073638567d2b152e64ddccd1899a8d');
+    await sql("INSERT INTO nodes(code,name) VALUES ('upgrade-synthetic','Nodo previo')");
+    await assert.rejects(migrate({
+      query: (text, params) => db.query(text, params),
+      exec: text => db.exec(text.startsWith('-- Tracking only:') ? text + '\nSELECT * FROM deliberately_missing_upgrade_table;' : text),
+    }, 'up'));
+    assert.equal((await sql('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 1);
+    assert.equal((await sql("SELECT count(*)::int AS n FROM pg_tables WHERE schemaname='public' AND tablename='sync_runs'")).rows[0].n, 0);
+    await migrate(db, 'up');
+    assert.equal((await sql("SELECT checksum FROM schema_migrations WHERE id='001_inventory'")).rows[0].checksum, checksum);
+    assert.equal((await sql("SELECT name FROM nodes WHERE code='upgrade-synthetic'")).rows[0].name, 'Nodo previo');
+  });
+
   await t.test('migration up is idempotent and seeds the extensible catalog', async () => {
     await migrate(db, 'up');
     await migrate(db, 'up');
     assert.deepEqual((await sql('SELECT code, name FROM camera_types ORDER BY code')).rows, [
       { code: 'D', name: 'Domo' }, { code: 'F', name: 'Fija' }, { code: 'P', name: 'Punto Seguro' },
     ]);
-    assert.equal((await sql('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, 1);
+    assert.equal((await sql('SELECT count(*)::int AS n FROM schema_migrations')).rows[0].n, migrationIds.length);
   });
 
   await t.test('complete codes are unique; numeric parts, leading zeros and NULLs are preserved', async () => {
@@ -88,7 +107,7 @@ export async function databaseSuite(t: TestContext, db: MigrationConnection): Pr
       VALUES ('invalid-ref','Test','https://digifort.invalid',$1)`, ['https://secret.invalid/token'], '23514');
     await reject(`INSERT INTO camera_bindings(camera_id,server_id,external_name) VALUES ($1,$2,'synthetic')`,
       [randomUUID(), randomUUID()], '23503');
-    const columns = (await sql(`SELECT column_name FROM information_schema.columns WHERE table_schema='public'`)).rows;
+    const columns = (await sql(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name<>'app_users'`)).rows;
     assert.ok(!columns.some(row => ['password', 'username', 'token', 'auth_pass', 'auth_user'].includes(String(row.column_name))));
   });
 
@@ -111,7 +130,7 @@ export async function databaseSuite(t: TestContext, db: MigrationConnection): Pr
     await reject('UPDATE camera_bindings SET valid_to=NULL WHERE id=$1', [first], '23514');
     await reject('UPDATE camera_bindings SET external_name=$1 WHERE id=$2', ['rewritten', first], '23514');
     await reject('DELETE FROM camera_bindings WHERE id=$1', [first], '23514');
-    await reject('DELETE FROM digifort_servers WHERE id=$1', [srv], '23503');
+    await reject('DELETE FROM digifort_servers WHERE id=$1', [srv], '23514');
     await reject(`INSERT INTO camera_bindings(camera_id,server_id,external_name,valid_from,valid_to)
       VALUES ($1,$2,'empty-period',$3,$3)`, [await camera(), srv, start], '23514');
   });
@@ -179,11 +198,29 @@ export async function databaseSuite(t: TestContext, db: MigrationConnection): Pr
     await reject(`UPDATE camera_current_state SET recording_source_scalars='{"password":"synthetic"}' WHERE camera_id=$1`,[a],'23514');
   });
 
+  await syncObservationSuite(t, db);
+  await snapshotWriterSuite(t, db);
+
   await t.test('migration checksum prevents silent editing of applied history', async () => {
-    const original = (await sql('SELECT checksum FROM schema_migrations')).rows[0].checksum;
-    await sql("UPDATE schema_migrations SET checksum='synthetic-tamper'");
+    const original = (await sql("SELECT checksum FROM schema_migrations WHERE id='001_inventory'")).rows[0].checksum;
+    await sql("UPDATE schema_migrations SET checksum='synthetic-tamper' WHERE id='001_inventory'");
     await assert.rejects(migrate(db,'up'), /Migration history/);
-    await sql('UPDATE schema_migrations SET checksum=$1', [original]);
+    await sql("UPDATE schema_migrations SET checksum=$1 WHERE id='001_inventory'", [original]);
+  });
+
+  await t.test('002 checksum, unknown migrations and non-prefix histories are rejected', async () => {
+    const original = (await sql("SELECT checksum FROM schema_migrations WHERE id='002_sync_observations'")).rows[0].checksum;
+    await sql("UPDATE schema_migrations SET checksum='synthetic-tamper' WHERE id='002_sync_observations'");
+    await assert.rejects(migrate(db,'up'), /Migration history/);
+    await assert.rejects(migrate(db,'down'), /Migration history/);
+    await sql("UPDATE schema_migrations SET checksum=$1 WHERE id='002_sync_observations'",[original]);
+    await sql("INSERT INTO schema_migrations(id,checksum) VALUES ('999_unknown','synthetic')");
+    await assert.rejects(migrate(db,'up'), /Migration history/);
+    await sql("DELETE FROM schema_migrations WHERE id='999_unknown'");
+    const first = (await sql("SELECT checksum FROM schema_migrations WHERE id='001_inventory'")).rows[0].checksum;
+    await sql("DELETE FROM schema_migrations WHERE id='001_inventory'");
+    await assert.rejects(migrate(db,'up'), /Migration history/);
+    await sql("INSERT INTO schema_migrations(id,checksum) VALUES ('001_inventory',$1)",[first]);
   });
 
   await t.test('rollback removes only owned objects and reapplication works', async () => {

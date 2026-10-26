@@ -1,5 +1,7 @@
 # Conector Digifort — Etapa 2
 
+> Regla vigente: [Description como fuente oficial](description-identity.md). Desde esta corrección, Name es sólo la clave técnica exacta; no hay fallback automático. Las referencias anteriores a Name como fuente son históricas.
+
 ## Estado y referencia funcional
 
 El módulo `apps/api/src/digifort` contiene un cliente JSON basado en la API anterior indicada por el usuario, analizada en modo de sólo lectura (`index.js` y `package.json`). No se ejecutaron los originales, no se copiaron al repositorio y no se consultaron servidores. Los tests utilizan exclusivamente datos sintéticos y transporte inyectado.
@@ -134,3 +136,44 @@ En `apps/api`: `npm run build` y `npm test` (o antes `npm ci` si faltan dependen
 Se prueba normalización completa, ceros y falsos, flags desconocidos, grabación, unión por Name reordenado, duplicados, faltantes, huérfanos, aislamiento por servidor, configuración inválida, codificación de credenciales ficticias, ausencia de secretos en errores/inspección del cliente, HTTP, límites, timeout y cancelación. Las pruebas XML y de salud Fastify siguen vigentes. No hay conexiones reales ni cambios a PostgreSQL o al frontend.
 
 Quedan pendientes muestras JSON anonimizadas y documentación de la instalación para confirmar versiones, tipos efectivos, nombres y unidades, errores funcionales, cardinalidad, paginación, límites apropiados, TLS y estabilidad de Name. No se activa el conector hasta una etapa explícita posterior.
+
+## Identidad municipal oficial desde Description
+
+`parseMunicipalDescription` recibe exclusivamente Description y devuelve source
+Description, originalDescription íntegro, delimitador, clasificación y componentes.
+Ejemplos: `025D`, `025D) Avenida Principal` y `025D Avenida Principal` producen código
+`025D`, número textual `025` y tipo D. No se incluye `)` ni se quitan ceros.
+El código debe comenzar en posición cero: dígitos ASCII y letra mayúscula, con `)`
+opcional; sin delimitador, el texto posterior requiere un espacio. Se rechazan
+controles, prefijos descriptivos y extracciones parciales. Se conservan valid, absent,
+invalid y unknown_type. D/F/P es el catálogo inicial, extensible explícitamente.
+
+Name y Description se conservan completos en los DTOs. Name exacto sólo une respuestas
+por servidor y resuelve vínculos técnicos; no aporta código de fallback. Name con un
+código válido y Description ausente produce candidato ausente. Los campos legados
+cameraId/cameraType conservan su extractor restringido por compatibilidad, pero no
+sustituyen municipalIdentity ni autorizan asignaciones.
+
+`parseMunicipalCameraName` permanece únicamente para comparación diagnóstica en la
+pantalla de inspección. Ningún flujo de identidad lo usa como fuente alternativa.
+Los candidatos no confirman códigos, no fusionan cámaras ni modifican UUID.
+
+## Colección manual por endpoint
+
+`DigifortJsonClient.collectEndpoints()` es aditivo: conserva el contrato de `getCameras()` y recoge intentos independientes mediante el mismo transporte y parsers. Las respuestas válidas mantienen completitud unknown; no se presume que HTTP 200 sea suficiente. Flujo, reintentos, metadatos y límites de persistencia: [manual-synchronization.md](manual-synchronization.md).
+
+## Validación SQL vigente
+
+004_description_identity incorpora validación desde Description y procedencia de
+propuestas. 001/002/003 no se modifican. Ver [description-identity.md](description-identity.md).
+La siguiente evidencia es histórica, anterior al cambio de fuente; no se repitieron
+consultas reales durante esta corrección.
+
+## Validación de lectura del parser ampliado — 2026-10-24
+
+Una única petición GetCameras autorizada devolvió HTTP 200 y 118 cámaras: 22
+candidatos municipales válidos, 0 ausentes, 96 inválidos y 0 de tipo desconocido.
+El parser de inventario aceptó la estructura; no se encontraron Name duplicados.
+La completitud permanece desconocida. No se consultó GetStatus ni se guardó la
+respuesta completa; el análisis fue en memoria, sin persistir cámaras o identidades.
+Pruebas: 187 aprobadas con Node 22.23.4 y compilación API correcta.

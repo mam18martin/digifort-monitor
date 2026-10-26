@@ -171,3 +171,8 @@ No se fabricaron fixtures con una supuesta raíz o clave real. Las futuras prueb
 Quedaron identificados los dos endpoints, parámetros, autenticación por query, accesos XML, campos utilizados, fórmulas y relación local de nodos. La prioridad es corregir conceptualmente la unión entre inventario y estado y confirmar el identificador compartido. Faltan XML anonimizados para habilitar un adaptador real; este análisis por sí solo no verifica compatibilidad con el servidor.
 
 Único archivo agregado por esta tarea: `docs/digifort-legacy-analysis.md`. No se modificó el conector, los PHP originales, PostgreSQL ni el frontend. No se ejecutaron commits ni pushes.
+
+Nota vigente: Description es la fuente oficial del candidato municipal; el extractor
+legado limitado no sustituye parseMunicipalDescription. Name se conserva como clave
+técnica exacta, sin fallback de identidad. `)` es opcional y se excluye del código.
+Ver [description-identity.md](description-identity.md).

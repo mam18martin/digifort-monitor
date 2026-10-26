@@ -1,6 +1,12 @@
 # Diseño de persistencia PostgreSQL — Etapa 3
 
+> Regla vigente: [Description como fuente oficial](description-identity.md). Desde esta corrección, Name es sólo la clave técnica exacta; no hay fallback automático. Las referencias anteriores a Name como fuente son históricas.
+
 **Estado:** el diseño completo distingue propuestas de implementaciones. La Fase 3A incorpora únicamente las siete tablas iniciales, con bloqueos conservadores para correcciones de identidad. El alcance físico, diferencias y validación están en [database-migrations.md](database-migrations.md). Los fragmentos SQL de este diseño no son la migración ejecutable.
+
+La implementación de seguimiento e historial del paso 2 de Fase 3B, y sus diferencias respecto de esta propuesta general, están en [sync-observations.md](sync-observations.md).
+
+El subconjunto conservador de reconciliación de Fase 3B.5 está en [identity-review.md](identity-review.md): propuestas y auditoría, sin aprobación ni aplicación autorizadas. Las operaciones administrativas siguientes continúan siendo propuestas de diseño, no capacidades habilitadas.
 
 ## Alcance y decisiones principales
 
@@ -74,7 +80,7 @@ Cardinalidad lógica: cada cámara y servidor recibe una fila de estado inicial 
 - `camera_type_code: text` nullable, FK a `camera_types.code`.
 - `camera_code: text` nullable, calculado como `camera_number || camera_type_code`, con unicidad global sobre valores no nulos, también para cámaras retiradas. No incluye `)` ni texto descriptivo. Los componentes se asignan juntos o permanecen ambos NULL.
 - `lifecycle: active | retired`, `identity_review: confirmed | provisional | disputed`, marcas de creación/retiro y `identity_revision` creciente para control de concurrencia.
-- Los componentes representan un código **aceptado**, no cualquier candidato encontrado en Description. Permitir múltiples cámaras provisionales sin código (NULL) mantiene el monitoreo ante errores de datos; no usar un código inventado, cadena vacía o un valor común de desconocido.
+- Los componentes representan un código **aceptado**, no cualquier candidato extraído de Name. Permitir múltiples cámaras provisionales sin código (NULL) mantiene el monitoreo ante errores de datos; no usar un código inventado, cadena vacía o un valor común de desconocido.
 - UUID sigue siendo la PK técnica; `camera_code` es clave operativa municipal única. No usar `Name`, IP, Description ni el actual `cameraId` numérico del conector como PK.
 - Se elimina `asset_code` de esta propuesta: `camera_code` expresa la regla confirmada y evita dos identificadores operativos ambiguos. Un eventual número patrimonial distinto requerirá otro requisito explícito.
 - Servidor, nodo, nombre y dirección actuales se obtienen de la versión de inventario abierta, no de columnas duplicadas sin control de coherencia.
@@ -111,7 +117,7 @@ Versiones del inventario y ubicación lógica. No representan cada observación 
 - PK `id: uuid`; FK `camera_id`, FK `binding_id`, FK `node_id` opcional.
 - `valid_from`, `valid_to`; `first_observed_at`, `last_confirmed_at`; `origin: digifort | manual | reconciliation`.
 - `display_name` y `external_name` del vínculo mantienen separado el nombre técnico de la identificación municipal.
-- `description_original` conserva el texto original de Description (o NULL si no se recibió), sin reemplazarlo por el código o la descripción recortada. `description_text` conserva el texto posterior al primer `)` que separa un prefijo válido; no partir por todos los paréntesis ni truncar el resto. Una variante recortada para presentación puede derivarse sin alterar el original.
+- `description_original` conserva el texto original de Description (o NULL si no se recibió), sin reemplazarlo por el código o la descripción recortada. `description_text` es información descriptiva independiente: no se extrae un sufijo municipal ni se interpreta `)` en Description. El esquema existente no se modifica en este paso; el futuro escritor debe definir el uso descriptivo de esta columna sin derivar identidad.
 - `code_candidate`, `number_candidate`, `type_code_candidate` y `code_parse_status: absent | invalid | unknown_type | valid` describen lo observado, independientemente del código confirmado de `cameras`. Guardar `code_parser_version` y `code_review_status: pending | accepted | conflict | rejected` con referencia opcional a incidencia/reconciliación; si existe código aceptado coincidente, su referencia al registro es opcional y verificable.
 - Un candidato inválido puede quedar NULL mientras se conserva el original restringido; una letra desconocida con sintaxis válida conserva los componentes candidatos sin FK obligatoria al catálogo. Los candidatos pueden repetirse: no aplicarles UNIQUE que impida monitorear una cámara con código duplicado.
 - `camera_code_at_observation` opcional referencia el código aceptado para ese UUID en aquel momento; no se recalcula retroactivamente al corregirlo.
@@ -119,7 +125,7 @@ Versiones del inventario y ubicación lógica. No representan cada observación 
 - `connection_address: text` admite hostname o IP; `connection_ip: inet` opcional sólo si la dirección es IP válida; `connection_port` validado si se confirma su formato numérico.
 - `latitude`, `longitude` numéricas opcionales con rangos geográficos, sólo tras conversión válida; `memo` y JSONB acotados/seleccionados para `media_profiles` y `camera_group`.
 - Los valores escalares heterogéneos actuales se conservan en un `source_scalars` JSONB de claves permitidas cuando aún no se pueden normalizar sin pérdida. No copiar el objeto remoto completo.
-- Una versión abierta por cámara. Un cambio de Description/candidato, código aceptado, nombre, vínculo/servidor, dirección o nodo cierra la versión y crea otra. Actualizar únicamente `last_confirmed_at` si el contenido semántico no cambia.
+- Una versión abierta por cámara. Un cambio de Description, candidato derivado de Name, código aceptado, nombre, vínculo/servidor, dirección o nodo cierra la versión y crea otra. Actualizar únicamente `last_confirmed_at` si el contenido semántico no cambia.
 - FK compuesta o validación equivalente que garantice que `binding_id` pertenece al mismo `camera_id`; nunca asociar la versión de una cámara al vínculo de otra.
 - Las asignaciones manuales de nodo tienen precedencia explícita y procedencia; la siguiente sincronización no debe borrarlas con un `nodeId: null` de contexto.
 
@@ -193,20 +199,28 @@ Se inspeccionó en sólo lectura el `index.js` original externo, sin ejecutarlo 
 
 | Aspecto | Implementación de referencia y conector actual | Regla municipal confirmada / diseño actualizado |
 | --- | --- | --- |
-| Prefijo | `/^(\d{2,4})([FDP])\)/i` sobre Description con trim exterior | Dígitos seguidos de una letra y `)` como separador; el código no incluye el paréntesis |
+| Prefijo | `/^(\d{2,4})([FDP])\)/i` sobre Description con trim exterior | Description al inicio con dígitos y letra mayúscula; `)` opcional y excluido del código |
 | Dígitos | De 2 a 4, conservados como cadena | Secuencia textual, conservando ceros; no se confirmó un límite de 2–4 |
 | Letras | Sólo F/D/P; acepta minúsculas y convierte letra a mayúscula | Catálogo extensible con D/F/P iniciales; otras letras requieren alta/revisión |
 | `CameraId` / `cameraId` | Devuelve sólo el grupo numérico, no el código completo | `camera_code` concatena número y letra; dos tipos con el mismo número pueden ser cámaras diferentes |
 | Tipo P | Etiqueta “Punto” | Etiqueta confirmada “Punto Seguro” |
-| Resto de Description | Se conserva Description completa; no hay campo específico para el texto posterior al separador | Conservar original y derivar `description_text` sin perder el resto |
+| Resto de Description | Se conserva Description completa; no hay campo específico para el texto posterior al separador | Conservar Description íntegra; extraer un candidato sin asignarlo automáticamente |
 | No coincidencia | Usa un valor por defecto; no valida unicidad municipal | UUID provisional, candidato no aceptado e incidencia; monitoreo continúa |
-| Asociación de estado | Mapa por Name exacto | Mantener esa asociación técnica; no sustituirla por el código de Description |
+| Asociación de estado | Mapa por Name exacto | Mantener esa asociación técnica; no sustituirla por los campos legados de Description |
 
 La existencia de código municipal queda confirmada por negocio; **no** se confirma que todos los registros actuales lo tengan correcto ni que los valores numéricos derivados hasta hoy sean únicos.
 
-Ejemplos exclusivamente sintéticos: `0042F) Cámara de ensayo` identifica `0042F`, con número `0042`, tipo F y texto posterior ` Cámara de ensayo`. `0042D` es otro código válido y puede corresponder a otro UUID. El espacio inicial del texto posterior puede omitirse en presentación, sin alterar `description_original`.
+El parser municipal oficial usa exclusivamente Description. `Description = "0042F) Lugar"`
+produce código `0042F`, número textual `0042` y tipo F. `)` es opcional y nunca pertenece
+al código. Los códigos deben estar al inicio, sin buscar números dentro del texto.
+Se conserva Description íntegra; Name íntegro identifica el vínculo técnico por servidor.
+No se usa Name como fallback. Clasifica absent, invalid, unknown_type y valid; valid
+no equivale a una asignación confirmada ni a validar unicidad.
 
-Extracción futura propuesta a partir de esa misma convención, no de un formato alternativo: reconocer al inicio de una vista con trim exterior una secuencia no vacía de dígitos ASCII, una letra ASCII y el primer `)`, normalizar sólo la letra a mayúscula y validar contra el catálogo. La forma conceptual es `^([0-9]+)([A-Za-z])\)`; ampliar el límite de dígitos y letras respecto del legado responde a los requisitos confirmados, **todavía no modifica el parser**. Conservar el texto original y offsets para extraer el sufijo; no convertir el número a entero ni buscar códigos arbitrarios dentro de la descripción. El texto posterior puede estar vacío sin invalidar un código, salvo regla adicional futura.
+municipalIdentity devuelve originalDescription, source Description, delimitador y
+componentes candidatos. Los campos legados cameraId/cameraType no reemplazan ese contrato.
+La migración 004 conserva la procedencia histórica Name y valida observaciones nuevas
+Description sin modificar códigos confirmados o UUID existentes.
 
 `00042F` y `42F` no se colapsan en este diseño: se preserva el texto hasta que el municipio defina una equivalencia explícita. La extracción no agrega unicidad a los candidatos ni convierte una cadena mal formada en una clave válida.
 
@@ -217,15 +231,15 @@ Separar tres decisiones: unir inventario/estado por Name, extraer un candidato m
 | Situación | Tratamiento propuesto |
 | --- | --- |
 | Código válido, conocido y sin colisión | Proponer asignación al UUID. En la primera carga, aprobación explícita o importación revisada; posteriormente mantener el código confirmado sin reasignarlo por cada lectura |
-| Sin Description o vacía | `absent`; UUID/vínculo provisional, código aceptado NULL, monitoreo y estados conservados |
+| Name ausente o vacío | `absent`; UUID/vínculo provisional, código aceptado NULL, monitoreo y estados conservados |
 | Prefijo mal formado | `invalid`; conservar original restringido, emitir incidencia y no fabricar código |
 | Sintaxis válida y letra no catalogada | `unknown_type`; conservar candidato, crear revisión de tipo; no mapearlo a un tipo conocido ni aceptar la asignación automáticamente |
 | Mismo código en dos nombres o servidores | Incidencia de conflicto; conservar observaciones por sus UUID/vínculos separados; no fusionar ni elegir por orden de llegada |
 | Name conocido con código observado distinto | Mantener UUID y código confirmado; registrar candidato conflictivo y revisión de corrección, sin mover historia al dueño del candidato |
 | Candidato igual a código reservado de otra cámara o retirado | Bloquear asignación, mantener monitoreo provisional y exigir revisión; no liberar reservas automáticamente |
-| Código inválido/ausente después de uno correcto | Conservar código confirmado; nueva versión de Description e incidencia, sin revocarlo por sincronización |
+| Código inválido/ausente después de uno correcto | Conservar código confirmado; nueva versión de inventario e incidencia, sin revocarlo por sincronización |
 
-Para un nombre nuevo sin identidad resuelta se crea un UUID provisional y un vínculo técnico, con los tres campos de código aceptado NULL. Para un vínculo vigente se conserva su UUID aunque Description falle. Ningún error municipal modifica Active, Working, presencia de inventario o disponibilidad del servidor. El conjunto sigue ingresando; se marca resultado parcial por calidad de identificación, sin confundirlo con error de consulta.
+Para un nombre nuevo sin identidad resuelta se crea un UUID provisional y un vínculo técnico, con los tres campos de código aceptado NULL. Para un vínculo vigente se conserva su UUID aunque el formato municipal de Name sea inválido. Ningún error municipal modifica Active, Working, presencia de inventario o disponibilidad del servidor. El conjunto sigue ingresando; se marca resultado parcial por calidad de identificación, sin confundirlo con error de consulta.
 
 Si el mismo Name cambia de dispositivo físico sin evidencia explícita, el conector no puede detectarlo por sí solo: abrir revisión ante indicios, y no afirmar continuidad física sólo por coincidencia de Name o código. La identidad provisional no es un mecanismo de fusión automática posterior.
 
@@ -233,9 +247,11 @@ Si el mismo Name cambia de dispositivo físico sin evidencia explícita, el cone
 
 1. **Renombrado:** Name cambia pero el código confirmado coincide con una cámara existente. Generar una propuesta de continuidad; el código sirve como evidencia municipal principal, pero no autoriza reasociar un vínculo ocupado ni fusionar UUIDs automáticamente. Confirmada la operación, cerrar/abrir vínculo con el mismo UUID y código.
 2. **Movimiento de servidor o nodo:** conservar UUID y código al confirmar que es la misma cámara. Versionar relación de servidor/nodo, cerrar el vínculo anterior cuando corresponda y obtener estado fresco del nuevo. No trasladar un Working reciente del servidor anterior como observación del nuevo vínculo.
-3. **Código distinto en un vínculo vigente:** tratar como posible error de Description, corrección autorizada o reemplazo; no resolverlo automáticamente por IP, código o similitud de nombre.
+3. **Código distinto en un vínculo vigente:** tratar como posible error de Name, corrección autorizada o reemplazo; no resolverlo automáticamente por IP, código o similitud de nombre.
 4. **Reemplazo físico:** por defecto UUID nuevo y vínculo/generación nuevos. El código anterior queda reservado al UUID anterior, incluso retirado. Si el municipio conserva el mismo código operativo al sustituir hardware, hace falta decidir antes si el UUID representa el punto de monitoreo o el equipo físico, o introducir una entidad de instalación/dispositivo. No se fuerza un código duplicado ni se mezcla el historial mientras esa decisión esté pendiente.
 5. **Código retirado que reaparece:** requiere revisión; puede ser el mismo activo reactivado, un reemplazo o una carga equivocada. No reabrir identidades cerradas automáticamente.
+
+Un reemplazo físico puede recibir un código municipal nuevo. No se presupone que el código identifique permanentemente una ubicación ni se fusionan cámaras por proximidad, Description o reemplazo supuesto.
 
 La política inicial mantiene un UUID por activo monitoreado con continuidad física confirmada; la continuidad de un código no equivale a prueba técnica de continuidad de hardware. Las observaciones de UUIDs provisionales permanecen en sus entidades de origen. Confirmar que dos entidades eran la misma requiere una reconciliación explícita, con procedencia y consulta conjunta auditable; nunca un UPDATE masivo de historia por coincidencia de códigos.
 
@@ -295,7 +311,7 @@ Separar cambios discretos, inventario, salud y métricas continuas:
 - Reaparición en el vínculo vigente: presencia present, contador cero, cerrar incidencia de ausencia y establecer nueva cobertura/época según las observaciones recibidas.
 - Retirar exige política aprobada o intervención explícita; jamás cascade/delete por ausencia temporal.
 - Un inventario vacío puede ser real, pero inicialmente requiere revisión antes de marcar todas las cámaras ausentes. El conector acepta `[]`, pero no acredita por sí solo que represente inventario completo autorizado.
-- Los estados huérfanos se cuentan en la ejecución y generan incidencia saneada; no crean cámaras ni cambian el inventario. Un resultado nuevo y ambiguo no debe reutilizar identidades retiradas. Un error de código en Description no es ausencia de inventario: actualizar su presencia y continuar el monitoreo, conservando la identidad provisional o confirmada según corresponda.
+- Los estados huérfanos se cuentan en la ejecución y generan incidencia saneada; no crean cámaras ni cambian el inventario. Un resultado nuevo y ambiguo no debe reutilizar identidades retiradas. Un error de código en Name no es ausencia de inventario: actualizar su presencia y continuar el monitoreo, conservando la identidad provisional o confirmada según corresponda.
 
 La confirmación de completitud es un requisito nuevo: el snapshot actual no proporciona esa garantía. Mientras sea unknown, se puede actualizar lo visto, pero no inferir ausencias de lo no visto.
 
@@ -409,7 +425,7 @@ Guardar en PostgreSQL sólo `credential_ref`; username, password, tokens y mater
 
 Incidencias usan códigos permitidos del conector (`CONFIGURATION`, `HTTP_ERROR`, `NETWORK_ERROR`, `TIMEOUT`, `RESPONSE_TOO_LARGE`, `INVALID_JSON`, `INVALID_RESPONSE`, `DUPLICATE_NAME`) y códigos internos controlados (`PERSISTENCE_FAILED`, `INCOMPLETE_COVERAGE`, `IDENTITY_CONFLICT`, `WORKER_ABANDONED`, `STALE_RESULT_DISCARDED`, `CAMERA_CODE_ABSENT`, `CAMERA_CODE_INVALID`, `CAMERA_TYPE_UNKNOWN`, `CAMERA_CODE_CONFLICT`, `CAMERA_CODE_REVIEW_REQUIRED`). No guardar `error.message`, stack, cause, URL, headers, query, Name ni cuerpo original. El texto para usuarios se genera mediante catálogo y parámetros numéricos/UUIDs internos permitidos.
 
-Los DTOs permitidos tampoco son automáticamente inocuos: Memo, Description, Group o perfiles podrían contener URLs o textos privados. Antes de persistir, aplicar una política de selección y saneamiento que excluya credenciales, userinfo, queries autenticadas y campos no aprobados; si no se puede sanear con certeza, omitir el campo y registrar código de redacción, nunca su contenido. `description_original` significa copia exacta del texto permitido en almacenamiento operativo restringido, no permiso para guardar secretos: si contiene material prohibido se omite o se conserva una versión redactada con `description_redacted=true`, sin presentarla como original íntegro. Un conflicto de redacción no elimina la cámara ni sus estados; el candidato municipal permitido puede mantenerse y revisarse independientemente. El texto original y su sufijo no se usan en mensajes de error ni fixtures de producción. No usar JSONB como depósito de respuestas completas. Revisar esta política con fixtures sintéticas de redacción.
+Los DTOs permitidos tampoco son automáticamente inocuos: Memo, Description, Group o perfiles podrían contener URLs o textos privados. Antes de persistir, aplicar una política de selección y saneamiento que excluya credenciales, userinfo, queries autenticadas y campos no aprobados; si no se puede sanear con certeza, omitir el campo y registrar código de redacción, nunca su contenido. `description_original` significa copia exacta del texto permitido en almacenamiento operativo restringido, no permiso para guardar secretos: si contiene material prohibido se omite o se conserva una versión redactada con `description_redacted=true`, sin presentarla como original íntegro. Un conflicto de redacción no elimina la cámara ni sus estados; el candidato municipal permitido puede mantenerse y revisarse independientemente. Name y Description originales no se usan en mensajes de error ni fixtures de producción. No usar JSONB como depósito de respuestas completas. Revisar esta política con fixtures sintéticas de redacción.
 
 ## 10. Brechas del conector actual y preguntas pendientes
 
@@ -417,14 +433,14 @@ El diseño no asume capacidades que todavía no implementa el módulo:
 
 - `getCameras()` devuelve un snapshot combinado y rechaza si falla cualquiera de los endpoints. No expone al llamador los resultados exitosos de cada endpoint, timestamps ni clasificación fina de fallas de transporte. Para completar `sync_endpoint_attempts` se necesitará instrumentación tipada futura, sin datos privados.
 - `coverage` contiene contadores, pero no garantía de inventario completo/paginación ni estados huérfanos identificados. La persistencia debe abstenerse de inferir ausencias mientras no tenga evidencia de completitud.
-- No hay identificador nativo confirmado, timestamps de origen ni garantía de estabilidad de Name. Sí está confirmada la regla municipal de código completo, pero `cameraId` del conector aún contiene sólo dígitos y sus tipos están cerrados a F/D/P. No persistir ese campo como `camera_code`; será necesario adaptar la extracción y DTOs en una tarea posterior, con fixtures sintéticas. Conservar identidad provisional hasta aprobar cada asignación.
+- No hay identificador nativo confirmado, timestamps de origen ni garantía de estabilidad de Name. Sí está confirmada la regla municipal de código completo, pero `cameraId` del conector aún contiene sólo dígitos y sus tipos están cerrados a F/D/P. No persistir ese campo como `camera_code`; el parser municipal desde Name y el DTO aditivo ya están disponibles, pero su persistencia requiere un escritor posterior. Conservar identidad provisional hasta aprobar cada asignación.
 - `nodeId` de contexto se aplica a todas las cámaras; no sirve como fuente autoritativa para servidores con varios nodos.
 
 ### Contradicciones corregidas respecto del diseño anterior
 
 - `asset_code` era opcional y su unicidad quedaba sin confirmar. Se reemplaza por `camera_code` operativo cuya unicidad **completa y global** ya está confirmada; sólo puede faltar en una cámara provisional/no resuelta.
 - El código se describía únicamente como un fragmento editable sin distinguir valor numérico y código completo. Ahora se separan el campo legado numérico, el candidato observado y el código municipal aprobado con letra.
-- La advertencia contra usar códigos de Description para identidad no debe negar la identificación municipal existente. Se conserva como protección contra fusiones automáticas: el código confirmado es principal para operación; UUID y reconciliación protegen la continuidad del historial.
+- Description es la fuente oficial de candidatos; Name queda como vínculo técnico sin fallback. Se conserva como protección contra fusiones automáticas: el código confirmado es principal para operación; UUID y reconciliación protegen la continuidad del historial.
 - La continuidad y reemplazos se trataban sin una reserva municipal. Ahora una corrección mantiene UUID y reserva anterior; un reemplazo con el mismo código queda expresamente pendiente de política física/lógica, no se permite duplicarlo ni heredar historial silenciosamente.
 - El tipo cerrado y la etiqueta P de la referencia no reflejan el catálogo requerido. El diseño usa catálogo extensible y “Punto Seguro”; el código ejecutable todavía conserva su comportamiento previo.
 
@@ -434,7 +450,7 @@ La forma general del código, los tipos D/F/P y la unicidad del código completo
 
 1. ¿Se aprueba la reserva histórica sin reasignación de códigos? Si el mismo código se conserva al cambiar hardware, ¿representa un punto de monitoreo o un equipo físico? Definir entidad de instalación/dispositivo o propiedad temporal antes de permitir reutilización.
 2. ¿Quién aprueba asignaciones iniciales, correcciones, revocaciones, nuevos tipos y reconciliaciones? ¿Se exige segunda aprobación en conflicto y cómo se revisará la primera carga municipal?
-3. ¿Hay equivalencia administrativa entre dígitos con/sin ceros iniciales, límite máximo o longitud normativa? Hasta resolverlo conservar texto sin colapsar ceros ni heredar el límite de 2–4 del legado. Se propone aceptar mayúsculas/minúsculas como la referencia y guardar letra canónica mayúscula.
+3. ¿Hay equivalencia administrativa entre dígitos con/sin ceros iniciales, límite máximo o longitud normativa? Hasta resolverlo conservar texto sin colapsar ceros ni heredar el límite de 2–4 del legado. El parser acepta únicamente mayúsculas; variantes minúsculas requieren una decisión explícita.
 4. ¿Se permiten réplicas simultáneas de una cámara en distintos servidores? El diseño inicial de vínculo único exige revisar esa situación sin crear dos dueños del mismo código.
 
 Otras preguntas operativas del diseño anterior que siguen vigentes:
@@ -451,24 +467,25 @@ Otras preguntas operativas del diseño anterior que siguen vigentes:
 
 ## 11. Validación prevista para la implementación futura
 
-Matriz documental de identificación a convertir en pruebas de Fase 3A; todos los valores son sintéticos:
+Matriz de identificación para Fase 3B (parser implementado; persistencia y reconciliación pendientes); todos los valores son sintéticos:
 
 | Caso | Resultado esperado |
 | --- | --- |
-| `0042F) Cámara de ensayo` y `0042D) Otra cámara de ensayo` | Dos códigos completos distintos admitidos; dígitos como texto |
-| `00042F)` frente a `42F)` | No colapsar ceros; conservar original y sufijo vacío válido según propuesta |
-| `0042f)` | Misma letra canónica F, original intacto; colisión si se intenta asignar a otro UUID |
-| Una o cinco cifras con F | Reconocer la diferencia con regex legado de 2–4; validar la política ampliada antes de modificar código |
+| Name `0042F)` y `0042D)` | Dos códigos completos distintos admitidos; dígitos como texto |
+| `00042F)` frente a `42F)` | No colapsar ceros; conservar Name íntegro y delimitador terminal |
+| `0042f)` | Inválido sin normalización silenciosa; Name original intacto |
+| Una o cinco cifras con F | Admitir secuencia no vacía de dígitos ASCII; no heredar el límite legado de 2–4 |
 | `0042X)` con X ausente del catálogo | Candidato preservado, revisión de tipo y cámara provisional monitoreada |
-| Description ausente, vacía, sin `)` o con texto antes del código | Sin código aceptado nuevo; incidente sin pérdida de monitoreo |
+| Name ausente, vacío, sin `)` o con texto antes del código | Sin código aceptado nuevo; incidente sin pérdida de monitoreo |
 | Código repetido en el lote o reservado por otro UUID | Conflicto sin elegir ganador por orden, sin rechazo de observaciones ni fusión |
 | Código distinto/ausente en Name ya vinculado | Conservar código confirmado; nueva versión y revisión |
 | Corrección aprobada de un código libre | Mismo UUID, nueva reserva y auditoría; historial anterior intacto |
 | Corrección a código de otro UUID o carrera de asignación | Transacción bloqueada/controlada, observaciones preservadas y revisión |
 | Renombrado o movimiento con código confirmado | Propuesta de continuidad y cambio de vínculo aprobado, no fusión automática |
 | Reemplazo con código reservado | Bloquear reasignación hasta política aprobada de instalación/dispositivo |
-| Texto posterior con otro `)` | Conservar todo el sufijo, sin truncarlo |
+| Name con sufijo u otro `)` | Inválido; sin extracción parcial |
+| Código sólo en Description | No genera candidato municipal; Description intacta |
 
-No se implementan estos casos ni cambios del conector en esta entrega documental. Antes de activar sincronización, probar además con datos sintéticos: tres estados por flag; fallo de servidor sin modificar Working; repetición idempotente; NULL a FALSE; reanudación después de hueco; muestras atrasadas; Name duplicado/reutilizado; renombrado, reemplazo y cambio de servidor; cambio de nodo e IP sin cambio de UUID confirmado; ausencia sólo ante inventario completo; recuperación tras tres ausencias; rollback por servidor; fallas parciales entre servidores; lease vencido; retención que preserve un estado abierto y el punto de partida histórico; redacción de metadatos y errores.
+El parser de Name y su integración aditiva están probados; las operaciones de persistencia y reconciliación siguen propuestas. Antes de activar sincronización, probar además con datos sintéticos: tres estados por flag; fallo de servidor sin modificar Working; repetición idempotente; NULL a FALSE; reanudación después de hueco; muestras atrasadas; Name duplicado/reutilizado; renombrado, reemplazo y cambio de servidor; cambio de nodo e IP sin cambio de UUID confirmado; ausencia sólo ante inventario completo; recuperación tras tres ausencias; rollback por servidor; fallas parciales entre servidores; lease vencido; retención que preserve un estado abierto y el punto de partida histórico; redacción de metadatos y errores.
 
-Esta entrega es únicamente documental. No se implementaron migraciones, tablas, scheduler, conexiones a Digifort ni modificaciones de servicios.
+El paso 1 implementa únicamente parsing y DTOs aditivos. No agrega migraciones, tablas, scheduler ni conexiones reales.

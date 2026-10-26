@@ -3,3 +3,11 @@
 **/dist
 .env
 *.log
+**/.env*
+**/*.log
+.local
+**/Olds
+**/*.zip
+**/files
+**/tests
+**/.DS_Store

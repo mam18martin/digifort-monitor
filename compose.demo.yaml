@@ -1,0 +1,61 @@
+name: digifort-monitor-demo
+services:
+  demo-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: demo_owner
+      POSTGRES_DB: digifort_demo_isolated
+      POSTGRES_HOST_AUTH_METHOD: trust
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD, pg_isready, -U, demo_owner, -d, digifort_demo_isolated]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [demo]
+  demo-seed:
+    build: ./apps/api
+    command: [node, dist/demo/seed-cli.js]
+    environment:
+      MONITOR_DEMO: "yes"
+      PGHOST: demo-db
+      PGDATABASE: digifort_demo_isolated
+      PGUSER: demo_owner
+    depends_on:
+      demo-db:
+        condition: service_healthy
+    restart: "no"
+    networks: [demo]
+  api:
+    build: ./apps/api
+    environment:
+      NODE_ENV: production
+      MONITOR_DEMO: "yes"
+      ENABLE_MONITOR_READ_API: "yes"
+      HOST: 0.0.0.0
+      PORT: 3000
+      PGHOST: demo-db
+      PGDATABASE: digifort_demo_isolated
+      PGUSER: demo_reader
+    depends_on:
+      demo-seed:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/v1/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+    networks: [demo]
+  web:
+    build: ./apps/web
+    ports:
+      - "127.0.0.1:${DEMO_PORT:-8081}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [demo, frontend]
+networks:
+  demo:
+    internal: true
+  frontend: {}

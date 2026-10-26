@@ -8,6 +8,8 @@ export interface HttpOptions {
   timeoutMs: number;
   maxResponseBytes: number;
   format: 'XML' | 'JSON';
+  /** Internal metadata observer: no URL, headers, body or credentials. */
+  onResponse?: (status: number) => void;
 }
 
 export function validateHttpLimits(timeoutMs: number, bytes: number): void {
@@ -31,6 +33,11 @@ export async function requestText(url: URL, options: HttpOptions): Promise<strin
     const response = await options.fetch(url, {
       method: 'GET', headers: new Headers(options.headers), signal: controller.signal, redirect: 'error',
     });
+    if (controller.signal.aborted) {
+      void response.body?.cancel().catch(() => {});
+      throw new DigifortError('TIMEOUT');
+    }
+    options.onResponse?.(response.status);
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
       throw new DigifortError('HTTP_ERROR', response.status);
